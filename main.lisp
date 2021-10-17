@@ -7,6 +7,10 @@
 
 ;; are we debugging
 (defparameter *debug* t)
+
+(defparameter *screen-height* 1080) 
+(defparameter *screen-width* 1920)
+
 ;; deceleration due to friction
 (defparameter +friction+ -15)
 ;; deceleration due to friction when slidding
@@ -16,7 +20,7 @@
 ;; horizontal acceleration of player
 (defparameter +x-acc+ 15)
 ;; vertical acceleration of player (gravity)
-(defparameter +y-acc+ 15)
+(defparameter +y-acc+ -15)
 
 (defgeneric draw (obj)
   (:documentation "renders an object to the screen"))
@@ -25,58 +29,75 @@
   (:documentation "updates the position and stuff of an object in the game"))
 
 (defclass player ()
-  ((pos :initform (vec2 0 850) :accessor :pos)
+  ((pos :initform (vec2 0 100) :accessor :pos)
    (bounds :initform (vec2 20 50) :accessor :bounds)
    (acc :initform (vec2 0 0) :accessor :acc)
    (vel :initform (vec2 0 0) :accessor :vel)))
 
 (defclass obstacle ()
-  ((rect :initarg :rect
-         :initform (make-rectangle
-                     :x 0 :y 0
-                     :width 0 :height 0)
-         :accessor :rect)))
+  ((pos :initarg :pos :initform (vec2 0 0) :accessor :pos)
+   (bounds :initarg :bounds :initform (vec2 20 50) :accessor :bounds)))
 
 
 (defmethod draw ((obj player))
   (draw-rectangle-lines
     (floor (vx (:pos obj)))
-    (floor (vy (:pos obj)))
+    (floor (- *screen-height* (vy (:pos obj))))
     (floor (vx (:bounds obj)))
     (floor (vy (:bounds obj)))
     +darkgreen+))
+
+(defmethod draw ((obj obstacle))
+  (draw-rectangle
+    (floor (vx (:pos obj)))
+    (floor (- *screen-height* (vy (:pos obj))))
+    (floor (vx (:bounds obj)))
+    (floor (vy (:bounds obj)))
+    +gray+))
 
 (defgeneric collisionp (p ob)
   (:documentation "check for collision between a player and an obstacle"))
 (defmethod collisionp ((p player) (ob obstacle))
   (check-collision-recs
     (make-rectangle 
-      :x (floor (vx (:pos *player*)))
-      :y (floor (vy (:pos *player*)))
-      :width (floor (vx (:bounds *player*)))
-      :height (floor (vy (:bounds *player*))))
-    (:rect (car *obstacles*))))
+      :x (floor (vx (:pos p)))
+      :y (floor (- *screen-height* (vy (:pos p))))
+      :width (floor (vx (:bounds p)))
+      :height (floor (vy (:bounds p))))
+    (make-rectangle 
+      :x (floor (vx (:pos ob)))
+      :y (floor (floor (- *screen-height* (vy (:pos ob)))))
+      :width (floor (vx (:bounds ob)))
+      :height (floor (vy (:bounds ob))))))
 
-(defmethod draw ((obj obstacle))
-  (draw-rectangle-rec (:rect obj) +gray+))
 
 ;; create our player
 (defparameter *player* (make-instance 'player))
 ;; all collision shapes
 (defparameter *obstacles*
-  `(,(make-instance 'obstacle
-         :rect (make-rectangle
-           :x 0 :y 980
-           :width 1920 :height 100))))
+  ;; floor
+  (list (make-instance 'obstacle
+           :pos (vec2 -30 100) 
+           :bounds (vec2 2000 100) )
+        (make-instance 'obstacle
+           :pos (vec2 200 200) 
+           :bounds (vec2 100 30))))
 
+(defun colliding (p lst)
+  (labels ((self (lst)
+             (cond
+               ((null lst) nil)
+               ((collisionp p (car lst)) t)
+               (t (self (cdr lst))))))
+    (self lst)))
 
 (defmethod update ((obj player) dt)
   ;; gather inputs
   (let ((idir (vec2 0 0))
-        (grounded (collisionp obj (car *obstacles*))))
+        (grounded (colliding *player* *obstacles*)))
     (if grounded
-        (if (is-key-down +key-w+)
-            (setf (vy (:vel obj)) -10)
+        (if (or (is-key-down +key-space+) (is-key-down +key-w+)) 
+            (setf (vy (:vel obj)) 10)
             (setf (vy (:vel obj)) 0))
         (setf (vy idir) 1))
     (cond
@@ -98,7 +119,11 @@
   (nv+ (:pos obj) (:vel obj)))
 
 (defun draw-debug ()
-    (draw-fps 20 20)
+  (let ((mpos (get-mouse-position)))
+    (draw-text (format nil "mpos ~a ~a" (vector2-x mpos) (- *screen-height* (vector2-y mpos)))
+               20 10 20 +lightgray+))
+    (draw-text (format nil "pos ~a ~a" (vx (:pos *player*)) (vy (:pos *player*)))
+               20 30 20 +lightgray+)
     (draw-text (format nil "vel: ~a ~a" (vx (:vel *player*)) (vy (:vel *player*)))
                20 50 20 +lightgray+)
     (draw-text (format nil "acc: ~a ~a" (vx (:acc *player*)) (vy (:acc *player*)))
@@ -114,13 +139,11 @@
     (draw *player*)))
 
 (defun main ()
-  (let ((screen-width 1920)
-        (screen-height 1080))
-    (with-window (screen-width screen-height "mjr game")
+  (with-window (*screen-width* *screen-height* "mjr game")
       (set-target-fps 60) ; Set our game to run at 60 FPS
       (loop
         (if (window-should-close) (return))
-        (game-loop)))))
+        (game-loop))))
 
 (if *debug*
     (bt:make-thread
