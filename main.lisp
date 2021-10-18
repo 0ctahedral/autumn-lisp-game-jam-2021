@@ -40,7 +40,7 @@
 
 
 (defmethod draw ((obj player))
-  (draw-rectangle-lines
+  (draw-rectangle
     (floor (vx (:pos obj)))
     (floor (- *screen-height* (vy (:pos obj))))
     (floor (vx (:bounds obj)))
@@ -55,21 +55,30 @@
     (floor (vy (:bounds obj)))
     +gray+))
 
-(defgeneric collisionp (p ob)
-  (:documentation "check for collision between a player and an obstacle"))
-(defmethod collisionp ((p player) (ob obstacle))
-  (check-collision-recs
-    (make-rectangle 
-      :x (floor (vx (:pos p)))
-      :y (floor (- *screen-height* (vy (:pos p))))
-      :width (floor (vx (:bounds p)))
-      :height (floor (vy (:bounds p))))
-    (make-rectangle 
-      :x (floor (vx (:pos ob)))
-      :y (floor (floor (- *screen-height* (vy (:pos ob)))))
-      :width (floor (vx (:bounds ob)))
-      :height (floor (vy (:bounds ob))))))
+;; get the collisions between an object and a list of
+;; other objects
+(defun get-collisions (obj lst)
+  (mapcar #'(lambda (o)
+        (collision-rect obj o)) lst))
 
+(defgeneric collision-rect (p ob)
+  (:documentation "get a rectangle of the collision of two objects"))
+
+(defmethod collision-rect ((p player) (ob obstacle))
+  (let ((r (get-collision-rec
+             (make-rectangle 
+               :x (floor (vx (:pos p)))
+               :y (floor (- *screen-height* (vy (:pos p))))
+               :width (floor (vx (:bounds p)))
+               :height (floor (vy (:bounds p))))
+             (make-rectangle 
+               :x (floor (vx (:pos ob)))
+               :y (floor (floor (- *screen-height* (vy (:pos ob)))))
+               :width (floor (vx (:bounds ob)))
+               :height (floor (vy (:bounds ob)))))))
+    (if (and (> (rectangle-width r) 0) (> (rectangle-height r) 0))
+        r
+        nil)))
 
 ;; create our player
 (defparameter *player* (make-instance 'player))
@@ -83,18 +92,24 @@
            :pos (vec2 200 200) 
            :bounds (vec2 100 30))))
 
-(defun colliding (p lst)
-  (labels ((self (lst)
-             (cond
-               ((null lst) nil)
-               ((collisionp p (car lst)) t)
-               (t (self (cdr lst))))))
-    (self lst)))
+;; sort collisions by direction
+;;(defun collision-dir (p r)
+;;  (let* ((px (vx (:pos p)))
+;;         (py (vy (:pos p)))
+;;         (px1 (+ px (vx (:bounds p))))
+;;         (py1 (+ py (yx (:bounds p))))
+;;         (cx (rectangle-x r))
+;;         (cy (rectangle-y r))
+;;         (cx1 (+ cx (rectangle-width r)))
+;;         (cy1 (+ cy (rectangle-height r))))
+;;    ;; get vectors hehe
+;;  )
 
 (defmethod update ((obj player) dt)
   ;; gather inputs
-  (let ((idir (vec2 0 0))
-        (grounded (colliding *player* *obstacles*)))
+  (let* ((idir (vec2 0 0))
+        (collisions (get-collisions *player* *obstacles*))
+        (grounded (car collisions)))
     (if grounded
         (if (or (is-key-down +key-space+) (is-key-down +key-w+)) 
             (setf (vy (:vel obj)) 10)
@@ -119,7 +134,12 @@
   (nv+ (:pos obj) (:vel obj)))
 
 (defun draw-debug ()
-  (let ((mpos (get-mouse-position)))
+  (let ((mpos (get-mouse-position))
+        (col (get-collisions *player* *obstacles*)))
+    (mapcar #'(lambda (r)
+                (if r
+                    (draw-rectangle-rec r +red+)
+                    nil)) col)
     (draw-text (format nil "mpos ~a ~a" (vector2-x mpos) (- *screen-height* (vector2-y mpos)))
                20 10 20 +lightgray+))
     (draw-text (format nil "pos ~a ~a" (vx (:pos *player*)) (vy (:pos *player*)))
@@ -132,11 +152,12 @@
 (defun game-loop ()
   (update *player* (get-frame-time))
   (with-drawing
-    (when *debug*
-      (draw-debug))
     (clear-background +raywhite+)
     (mapcar #'draw *obstacles*)
-    (draw *player*)))
+    (draw *player*)
+    (when *debug*
+      (draw-debug))
+    ))
 
 (defun main ()
   (with-window (*screen-width* *screen-height* "mjr game")
